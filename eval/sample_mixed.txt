@@ -1,0 +1,3 @@
+Hello world! This is a tokenizer sanity sample.
+今天我们测试一个中英混合文本，用于快速基准测试。
+Numbers: 12345, punctuation: !?., and symbols: @#&*

@@ -1,0 +1,15 @@
+{
+  "chosen_model_id": "Qwen/Qwen3-0.6B",
+  "primary_model_id": "Qwen/Qwen3-0.6B",
+  "fallback_model_id": "Qwen/Qwen3-1.7B",
+  "allow_patterns": [
+    "tokenizer.json",
+    "tokenizer_config.json",
+    "special_tokens_map.json",
+    "added_tokens.json",
+    "vocab.json",
+    "merges.txt",
+    "spiece.model",
+    "tokenizer.model"
+  ]
+}

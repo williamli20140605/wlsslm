@@ -1,0 +1,109 @@
+{
+  "phases": [
+    {
+      "phase": "phase_1_part_1",
+      "checklist": [
+        {
+          "id": "readme_created",
+          "description": "README scaffold exists",
+          "passes": true
+        },
+        {
+          "id": "tokenizer_decision_doc_created",
+          "description": "Tokenizer decision doc exists with primary+fallback strategy",
+          "passes": true
+        },
+        {
+          "id": "sample_mixed_text_created",
+          "description": "Mixed zh/en eval sample exists",
+          "passes": true
+        },
+        {
+          "id": "tokenizer_fetch_script_created",
+          "description": "Tokenizer fetch script exists and targets local vendor path",
+          "passes": true
+        },
+        {
+          "id": "local_only_tokenizer_loader_created",
+          "description": "Tokenizer loads local-only from assets/tokenizer/qwen3",
+          "passes": true
+        },
+        {
+          "id": "tokenizer_bench_script_created",
+          "description": "Tokenizer benchmark script writes docs/tokenizer_bench.json",
+          "passes": true
+        },
+        {
+          "id": "progress_log_created",
+          "description": "Append-only progress log exists",
+          "passes": true
+        }
+      ]
+    },
+    {
+      "phase": "phase_2_step_1_data_pack_shards",
+      "checklist": [
+        {
+          "id": "pack_docs_script_created",
+          "description": "pack_docs.py packs docs into uint32 bin with EOS between docs",
+          "passes": true
+        },
+        {
+          "id": "pack_docs_blankline_split_supported",
+          "description": "pack_docs.py supports --split blanklines",
+          "passes": true
+        },
+        {
+          "id": "pack_docs_meta_written",
+          "description": "pack_docs.py writes adjacent .meta.json including tokenizer source and eos id",
+          "passes": true
+        },
+        {
+          "id": "inspect_bin_script_created",
+          "description": "inspect_bin.py reads bin+meta and prints first ids plus decoded preview",
+          "passes": true
+        },
+        {
+          "id": "phase2_step1_acceptance_verified",
+          "description": "sample_mixed pack + inspect commands ran successfully in .venv",
+          "passes": true
+        }
+      ]
+    },
+    {
+      "phase": "phase_2_step_2_min_transformer",
+      "checklist": [
+        {
+          "id": "model_py_created",
+          "description": "src/model.py implements minimal decoder-only Transformer (RMSNorm, RoPE, SwiGLU, causal attention)",
+          "passes": true
+        },
+        {
+          "id": "data_loader_py_created",
+          "description": "src/data_loader.py loads uint32 memmap and yields random (x,y) batches",
+          "passes": true
+        },
+        {
+          "id": "train_core_py_created",
+          "description": "src/train_core.py provides minimal train loop and checkpoint save",
+          "passes": true
+        },
+        {
+          "id": "train_tiny_script_created",
+          "description": "scripts/train_tiny.py trains tiny config on data/sample_mixed.bin and writes checkpoints/tiny.pt",
+          "passes": true
+        },
+        {
+          "id": "sample_script_created",
+          "description": "scripts/sample.py loads checkpoint+tokenizer and samples prompt text",
+          "passes": true
+        },
+        {
+          "id": "phase2_step2_acceptance_verified",
+          "description": "train_tiny and sample scripts executed successfully in .venv",
+          "passes": true
+        }
+      ]
+    }
+  ]
+}

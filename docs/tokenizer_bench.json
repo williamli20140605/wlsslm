@@ -1,0 +1,11 @@
+{
+  "input_path": "eval/sample_mixed.txt",
+  "chars": 125,
+  "tokens": 44,
+  "encode_repeats": 200,
+  "decode_repeats": 200,
+  "encode_seconds_total": 0.008147499989718199,
+  "decode_seconds_total": 0.001598416012711823,
+  "encode_tokens_per_second": 1080085.9172881532,
+  "decode_tokens_per_second": 5505450.352108394
+}

@@ -1,0 +1,14 @@
+{
+  "name": "fineweb_en_only_clean",
+  "shard_id": 15,
+  "bin": "/Users/william/Documents/wlsslm/data/shards/fineweb_en_only_clean_shard0015.bin",
+  "token_count": 5000187,
+  "doc_count": 7775,
+  "eos_token_id": 151645,
+  "sources": {
+    "fineweb_id": "HuggingFaceFW/fineweb",
+    "fineweb_subset": "sample-10BT",
+    "allow_cjk": false
+  },
+  "created_at": "2026-02-17 23:00:56"
+}

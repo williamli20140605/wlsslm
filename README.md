@@ -9,7 +9,6 @@ This repo started with tokenizer vendoring and local evaluation, and now include
 
 ## Quick Start (current workflow)
 
-- Operational runbook: `CLAWREAD.md`
 - End-to-end usage: `docs/USAGE.md`
 
 ## Tokenizer

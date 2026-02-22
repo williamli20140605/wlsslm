@@ -9,10 +9,15 @@ checkpoints/
 logs/
 old-models/
 
-# ignore all data by default
+#ignore all data by default
 data/*
 !data/shards/
 data/shards/*
 !data/shards/fineweb_en_only_clean.index.json
 !data/shards/fineweb_en_only_clean_shard*.bin
 !data/shards/fineweb_en_only_clean_shard*.meta.json
+
+CLAWREAD.md
+NEXT_STEP.md
+scripts/sync_code_zip.sh
+scripts/sync_code_unzip.sh

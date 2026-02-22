@@ -41,16 +41,15 @@ def _safe_json_write(path: Path, obj: Any) -> None:
     tmp.replace(path)
 
 
-def iter_fineweb(dataset_id: str, subset: Optional[str]) -> Iterator[str]:
+def iter_fineweb(dataset_id: str, subset: Optional[str]) -> Iterator[dict[str, Any]]:
     from datasets import load_dataset
 
     kwargs = {"split": "train", "streaming": True}
     ds = load_dataset(dataset_id, subset, **kwargs) if subset else load_dataset(dataset_id, **kwargs)
 
     for ex in ds:
-        t = (ex.get("text") or "").strip()
-        if t:
-            yield t
+        # ex typically contains: text, token_count, language, url, ...
+        yield ex
 
 
 def main() -> None:
@@ -61,6 +60,20 @@ def main() -> None:
     ap.add_argument("--min-doc-chars", type=int, default=400)
     ap.add_argument("--max-doc-chars", type=int, default=20_000)
     ap.add_argument("--sleep", type=float, default=0.0)
+
+    ap.add_argument(
+        "--use-fineweb-token-count",
+        action="store_true",
+        help=(
+            "Use FineWeb-provided token_count as an APPROX counter for stopping at --target-tokens. "
+            "Note: output shards are still tokenized with the local tokenizer; this only changes the counter used for stopping."
+        ),
+    )
+    ap.add_argument(
+        "--fineweb-token-count-field",
+        default="token_count",
+        help="Field name to read from FineWeb examples when --use-fineweb-token-count is enabled.",
+    )
 
     ap.add_argument("--allow-cjk", action="store_true", help="Allow CJK characters (default: reject).")
 
@@ -115,6 +128,7 @@ def main() -> None:
 
     total_tokens = int(index.get("total_tokens", 0))
     total_docs = int(index.get("total_docs", 0))
+    approx_total_tokens = int(index.get("approx_total_tokens", total_tokens))
 
     shards_list = index.get("shards") or []
     shard_id = int(shards_list[-1]["shard_id"]) + 1 if shards_list else 1
@@ -122,6 +136,10 @@ def main() -> None:
     print(
         f"Starting FineWeb-only build: name={args.name} target_tokens={args.target_tokens} already={total_tokens} next_shard={shard_id}"
     )
+    if args.use_fineweb_token_count:
+        print(
+            f"NOTE: using FineWeb {args.fineweb_token_count_field} as approx counter: approx_already={approx_total_tokens}"
+        )
     print("If FineWeb config fails, rerun with --fineweb-id/--fineweb-subset overrides.")
 
     try:
@@ -139,14 +157,31 @@ def main() -> None:
             return ""
         return t
 
-    def next_doc() -> Optional[str]:
+    def next_doc() -> Optional[tuple[str, Optional[int]]]:
         try:
-            return clean_text(next(it_fw))
+            ex = next(it_fw)
         except StopIteration:
             return None
 
-    while total_tokens < args.target_tokens:
+        t = clean_text((ex.get("text") or ""))
+        if not t:
+            return ("", None)
+
+        tc = ex.get(args.fineweb_token_count_field)
+        try:
+            tc_int = int(tc) if tc is not None else None
+        except Exception:
+            tc_int = None
+        return (t, tc_int)
+
+    def budget_n(actual_n: int, fineweb_n: Optional[int]) -> int:
+        if args.use_fineweb_token_count and fineweb_n is not None and fineweb_n > 0:
+            return int(fineweb_n)
+        return int(actual_n)
+
+    while approx_total_tokens < args.target_tokens:
         shard_tokens = 0
+        shard_approx_tokens = 0
         shard_docs = 0
 
         bin_name = f"{args.name}_shard{shard_id:04d}.bin"
@@ -159,9 +194,13 @@ def main() -> None:
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
             shard_tokens = int(meta.get("token_count", 0))
             shard_docs = int(meta.get("doc_count", 0))
+            shard_approx_tokens = int(meta.get("approx_token_count", shard_tokens))
             total_tokens += shard_tokens
+            approx_total_tokens += shard_approx_tokens
             total_docs += shard_docs
-            print(f"SKIP existing shard {bin_name} tokens={shard_tokens} docs={shard_docs}")
+            print(
+                f"SKIP existing shard {bin_name} tokens={shard_tokens} approx={shard_approx_tokens} docs={shard_docs}"
+            )
             shard_id += 1
             continue
 
@@ -176,10 +215,13 @@ def main() -> None:
 
             last_report = time.time()
 
-            while shard_tokens < args.shard_tokens and total_tokens < args.target_tokens:
-                doc = next_doc()
-                if doc is None:
+            while shard_tokens < args.shard_tokens and approx_total_tokens < args.target_tokens:
+                got = next_doc()
+                if got is None:
                     raise SystemExit("FineWeb stream ended unexpectedly.")
+                doc, fw_tc = got
+                if not doc:
+                    continue
                 if len(doc) < args.min_doc_chars:
                     continue
 
@@ -191,8 +233,11 @@ def main() -> None:
                 buf.append(int(eos))
 
                 n = len(ids) + 1
+                bn = budget_n(n, fw_tc)
                 shard_tokens += n
+                shard_approx_tokens += bn
                 total_tokens += n
+                approx_total_tokens += bn
                 shard_docs += 1
                 total_docs += 1
 
@@ -201,10 +246,16 @@ def main() -> None:
 
                 now = time.time()
                 if now - last_report > 5:
-                    print(
-                        f"shard={shard_id:04d} shard_tokens~={shard_tokens} total_tokens~={total_tokens}/{args.target_tokens} docs={total_docs}",
-                        flush=True,
-                    )
+                    if args.use_fineweb_token_count:
+                        print(
+                            f"shard={shard_id:04d} shard_tokens~={shard_tokens} approx_total_tokens~={approx_total_tokens}/{args.target_tokens} docs={total_docs}",
+                            flush=True,
+                        )
+                    else:
+                        print(
+                            f"shard={shard_id:04d} shard_tokens~={shard_tokens} total_tokens~={total_tokens}/{args.target_tokens} docs={total_docs}",
+                            flush=True,
+                        )
                     last_report = now
 
                 if args.sleep:
@@ -217,12 +268,15 @@ def main() -> None:
             "shard_id": shard_id,
             "bin": str(bin_path),
             "token_count": shard_tokens,
+            "approx_token_count": shard_approx_tokens,
             "doc_count": shard_docs,
             "eos_token_id": int(eos),
             "sources": {
                 "fineweb_id": args.fineweb_id,
                 "fineweb_subset": args.fineweb_subset,
                 "allow_cjk": bool(args.allow_cjk),
+                "use_fineweb_token_count": bool(args.use_fineweb_token_count),
+                "fineweb_token_count_field": args.fineweb_token_count_field,
             },
             "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         }
@@ -234,15 +288,22 @@ def main() -> None:
                 "bin": bin_name,
                 "meta": meta_name,
                 "token_count": shard_tokens,
+                "approx_token_count": shard_approx_tokens,
                 "doc_count": shard_docs,
             }
         )
         index["total_tokens"] = int(total_tokens)
+        index["approx_total_tokens"] = int(approx_total_tokens)
         index["total_docs"] = int(total_docs)
         index["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
         _safe_json_write(index_path, index)
 
-        print(f"WROTE shard {shard_id:04d} tokens={shard_tokens} total={total_tokens}")
+        if args.use_fineweb_token_count:
+            print(
+                f"WROTE shard {shard_id:04d} tokens={shard_tokens} approx_total={approx_total_tokens} total={total_tokens}"
+            )
+        else:
+            print(f"WROTE shard {shard_id:04d} tokens={shard_tokens} total={total_tokens}")
         shard_id += 1
 
     print("DONE")

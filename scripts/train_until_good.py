@@ -11,6 +11,10 @@ Data:
 - train shards: all but last `val_shards`
 - val shards: last `val_shards`
 
+Extras:
+- --init-ckpt: initialize a new run-name from an existing checkpoint's model_state.
+  This is for "continue pretrain" on a new dataset without inheriting the old optimizer.
+
 Usage:
   source .venv/bin/activate
   python scripts/train_until_good.py \
@@ -64,6 +68,59 @@ def eval_loss(model: TransformerLM, loader: TokenBatchLoader, batches: int = 200
     return float(sum(losses) / max(1, len(losses)))
 
 
+def _atomic_torch_save(path: Path, obj: dict) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    torch.save(obj, tmp)
+    tmp.replace(path)
+
+
+def _maybe_prepare_init_resume(
+    *,
+    ckpt_dir: Path,
+    run_name: str,
+    init_ckpt: str | None,
+    latest_ckpt: Path | None,
+) -> str | None:
+    """If no resume exists for this run, optionally initialize from init_ckpt.
+
+    We do NOT carry optimizer_state. We create a sanitized resume checkpoint with:
+    - model_state from init_ckpt
+    - global_step = 0
+    - losses = []
+
+    This allows continuing pretrain on a new dataset while keeping weights.
+    """
+
+    if latest_ckpt is not None:
+        return None
+    if not init_ckpt:
+        return None
+
+    init_path = Path(init_ckpt)
+    if not init_path.exists():
+        raise FileNotFoundError(init_path)
+
+    raw = torch.load(str(init_path), map_location="cpu")
+    if not (isinstance(raw, dict) and "model_state" in raw and "model_config" in raw):
+        raise ValueError("init-ckpt must be a wlsslm checkpoint dict with model_state/model_config")
+
+    sanitized = {
+        "model_state": raw["model_state"],
+        "optimizer_state": None,
+        "model_config": raw["model_config"],
+        "train_config": {"init_from": str(init_path), "note": "sanitized init checkpoint"},
+        "losses": [],
+        "final_loss": None,
+        "global_step": 0,
+        "final": False,
+    }
+
+    out = ckpt_dir / f"{run_name}_init.pt"
+    _atomic_torch_save(out, sanitized)
+    print(f"[train_until_good] init-ckpt: created sanitized init resume at {out}")
+    return str(out)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--index", default="data/shards/mix50m.index.json")
@@ -76,6 +133,12 @@ def main() -> None:
     ap.add_argument("--eval-every-chunks", type=int, default=10)
     ap.add_argument("--eval-batches", type=int, default=200)
     ap.add_argument("--patience", type=int, default=3)
+
+    ap.add_argument(
+        "--init-ckpt",
+        default=None,
+        help="Initialize a new run from an existing checkpoint (model_state only; resets optimizer/step)",
+    )
 
     # training config
     ap.add_argument("--block-size", type=int, default=256)
@@ -108,6 +171,17 @@ def main() -> None:
     # Find resume
     latest_ckpt, latest_step = find_latest_step_ckpt(ckpt_dir, args.run_name)
     resume = str(latest_ckpt) if latest_ckpt else None
+
+    # Optional init from another ckpt (only when no existing resume for run-name)
+    init_resume = _maybe_prepare_init_resume(
+        ckpt_dir=ckpt_dir,
+        run_name=args.run_name,
+        init_ckpt=args.init_ckpt,
+        latest_ckpt=latest_ckpt,
+    )
+    if init_resume is not None:
+        resume = init_resume
+        latest_step = 0
 
     save_every = 500
     keep_last_k = 3
@@ -144,24 +218,12 @@ def main() -> None:
 
         steps_to_run = min(args.chunk_steps, args.max_global_steps - latest_step)
 
-        # Train one chunk. We point bin_path at the first train shard;
-        # train_core will detect index json if present in the same dir only for that shard.
-        # To ensure train uses ONLY train shards, we pass a synthetic loader by writing a tiny temp index.
-        # Simpler: use first train shard path but rely on loader rotation among full index would include val.
-        # So here we avoid train_core's auto-index and instead train on a concatenated list via loader path list.
-        # Practical compromise: train on all shards (including val) is not acceptable.
-        # Therefore, we create a temporary index file listing only train shards.
+        # Train one chunk on train shards only by temporarily monkeypatching the index
         tmp_index = index_path.parent / f".{args.run_name}.train.index.json"
         tmp_payload = dict(index)
         tmp_payload["shards"] = [{"bin": p.name, "token_count": 0} for p in train_bins]
         tmp_index.write_text(json.dumps(tmp_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
-        # Use first train shard but in a dir that has our temp index name pattern.
-        # train_core detects <stem>.index.json; easiest is to pass bin_path with stem matching tmp index.
-        # We therefore symlink/copy is overkill; instead we bypass train_core auto-index by calling
-        # train_core with a bin that does NOT trigger index detection, and we monkeypatch by temporarily
-        # placing a matching index file.
-        # We'll place: <bin_stem_prefix>.index.json next to the bin.
         first_train = train_bins[0]
         index_candidate = first_train.parent / (first_train.stem.split("_shard")[0] + ".index.json")
         backup = None
@@ -190,7 +252,6 @@ def main() -> None:
                 save_dir=str(ckpt_dir),
             )
         finally:
-            # restore index candidate
             if backup is None:
                 try:
                     index_candidate.unlink()
@@ -211,7 +272,6 @@ def main() -> None:
 
         do_eval = (chunk_i % int(args.eval_every_chunks) == 0) or (latest_step >= args.max_global_steps)
         if do_eval:
-            # Val loader: deterministic rotation for coverage
             val_loader = TokenBatchLoader.from_shard_paths(
                 [str(p) for p in val_bins],
                 block_size=args.block_size,

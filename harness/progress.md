@@ -156,3 +156,20 @@ Key outputs:
 
 Fixes during run:
 - Updated `src/model.py` loss flattening from `.view(...)` to `.reshape(...)` to avoid non-contiguous tensor runtime error.
+
+
+## 2026-02-19 — Windows OpenSSH + WSL FineWeb-only 1B build interruptions
+
+- Windows host 192.168.110.78: SSH stopped working (TCP/22 timeout). Root cause was sshd not running + firewall/profile mismatch (WLAN Public).
+- Fixed by running Admin PowerShell:
+  - Start-Service sshd (listening on 0.0.0.0:22 and ::22)
+  - Firewall OpenSSH rule set to Profile Any
+  - WLAN profile switched to Private
+- WSL build (FineWeb-only 1B shards): `scripts/build_fineweb_only.py`
+  - Progress reached ~353.85M tokens (shard0071) and later ~370.87M tokens (shard0075).
+  - Build crashed at one point due to missing Python dependency: `ModuleNotFoundError: transformers` (running outside `.venv`).
+  - SSH disconnects/timeouts occurred when VPN/network was toggled on the Windows host; tmux socket missing indicates WSL restart/stop.
+
+Next actions:
+- Ensure builder always runs via `./.venv/bin/python` and dependencies are installed inside `.venv`.
+- Keep Windows network stable (avoid toggling VPN during long builds) or expect reconnect + resume.

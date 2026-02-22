@@ -30,4 +30,3 @@ This repo started with tokenizer vendoring and local evaluation, and now include
 - Training:
   - Budget + early stopping: `scripts/train_until_good.py`
   - Foreground helper: `scripts/run_train_until_good.sh`
-

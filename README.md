@@ -31,7 +31,3 @@ This repo started with tokenizer vendoring and local evaluation, and now include
   - Budget + early stopping: `scripts/train_until_good.py`
   - Foreground helper: `scripts/run_train_until_good.sh`
 
-## Notes
-
-- Long-running jobs are intended to run in the foreground (use `caffeinate`).
-- Checkpoints must be saved conservatively to avoid filling disk.

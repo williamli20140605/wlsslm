@@ -21,3 +21,6 @@ CLAWREAD.md
 NEXT_STEP.md
 scripts/sync_code_zip.sh
 scripts/sync_code_unzip.sh
+
+# OpenClaw policy (WL)
+!CLAWREAD.md

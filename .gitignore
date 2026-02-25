@@ -24,3 +24,6 @@ scripts/sync_code_unzip.sh
 
 # OpenClaw policy (WL)
 !CLAWREAD.md
+# Private: files prepared for Claw to read (do not commit to public repos)
+ClawRead*
+CLAW*.md
